@@ -21,3 +21,8 @@ Thumbs.db
 # 运行时 / 日志
 *.log
 *.pid
+
+# 飞书机器人运行日志
+run_feishu.out.log
+run_feishu.err.log
+
