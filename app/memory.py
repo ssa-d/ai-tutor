@@ -2,48 +2,63 @@
 
 负责维护和管理 AI Tutor 的多轮对话历史。
 - summarize_messages(): 把历史压缩成一行摘要（工具函数）
-- ChatMemory: 一个"类"，管理某个用户会话的记忆（可保存/读取/裁剪/清空）
+- ChatMemory: 管理某个用户会话的记忆，可持久化到 SQLite（长期记忆）
 
-第 3 课预习：用「类(class)」来封装"数据 + 操作数据的方法"，每个用户一个实例。
+第 3 课：用「类(class)」封装"数据 + 操作数据的方法"，每个用户一个实例。
 """
+
+from . import storage
 
 
 class ChatMemory:
-    """管理一段多轮对话记忆。
+    """管理一段多轮对话记忆（可持久化到 SQLite）。
 
-    每个实例代表一个用户会话的"记忆盒子"，各自有独立的 history。
-    通过 add_user / add_assistant 不断追加，get_messages 取出完整历史，
-    交给 llm.chat() 即可让 AI 记住上下文。
+    每个实例代表一个用户会话的"记忆盒子"。
+    - 如果给了 chat_id，会自动从数据库加载该会话的历史（实现"重启后还记得"）。
+    - add_user / add_assistant 追加消息，同时写入数据库。
+    - get_messages 取出完整历史，交给 llm.chat()。
     """
 
-    def __init__(self, max_len: int = 20):
-        """创建记忆盒子。max_len 是历史最多保留多少条（超出裁剪）。"""
-        self.history: list[dict] = []   # 对话历史，每个元素是 {"role","content"}
-        self.max_len = max_len          # 允许的最长历史条数
+    def __init__(self, chat_id: str = "", max_len: int = 20, persist: bool = True):
+        """创建记忆盒子。
+
+        参数:
+            chat_id: 会话 ID（如飞书 chat_id）。用于按会话隔离 + 持久化。
+            max_len: 历史最多保留多少条（超出裁剪）。这里裁剪仅针对本次读取，持久化仍保留全部。
+            persist: 是否持久化到 SQLite（True=长期记忆，False=仅内存/临时）。
+        """
+        self.chat_id = chat_id
+        self.max_len = max_len
+        self.persist = persist
+        # 从数据库加载历史（若有）
+        self.history: list[dict] = storage.load_history(chat_id) if persist and chat_id else []
 
     def add_user(self, text: str) -> None:
         """记录用户说的一句话。"""
         self.history.append({"role": "user", "content": text})
-        self._trim()
+        self._save("user", text)
 
     def add_assistant(self, text: str) -> None:
         """记录 AI 回答的一句话。"""
         self.history.append({"role": "assistant", "content": text})
-        self._trim()
+        self._save("assistant", text)
 
     def get_messages(self) -> list[dict]:
-        """返回完整对话历史（一个列表，可直接传给 llm.chat）。"""
+        """返回完整对话历史（限制在 max_len 条，避免上下文过长）。"""
+        if len(self.history) > self.max_len:
+            return self.history[-self.max_len:]
         return self.history
 
     def clear(self) -> None:
-        """清空这段记忆。"""
+        """清空当前会话的记忆（内存 + 数据库）。"""
+        if self.persist and self.chat_id:
+            storage.clear_history(self.chat_id)
         self.history = []
 
-    def _trim(self) -> None:
-        """历史超过 max_len 条时，丢掉最旧的消息，防止无限增长。"""
-        if len(self.history) > self.max_len:
-            # 只保留末尾 max_len 条
-            self.history = self.history[-self.max_len:]
+    def _save(self, role: str, content: str) -> None:
+        """把一条消息写入数据库（若开启持久化且有 chat_id）。"""
+        if self.persist and self.chat_id:
+            storage.save_message(self.chat_id, role, content)
 
 
 def summarize_messages(messages: list[dict]) -> str:
@@ -63,25 +78,22 @@ def summarize_messages(messages: list[dict]) -> str:
         ... ])
         'user:你好 | assistant:你好呀'
     """
-    parts: list[str] = []            # 用来装每个 "role:content" 片段
-    for msg in messages:             # 遍历每一条消息字典
+    parts: list[str] = []
+    for msg in messages:
         role = msg["role"]
         content = msg["content"]
-        parts.append(f"{role}:{content}")   # 拼成 "user:你好" 这样的片段
-    return " | ".join(parts)         # 用 " | " 把所有片段连成一行
+        parts.append(f"{role}:{content}")
+    return " | ".join(parts)
 
 
 if __name__ == "__main__":
-    # 直接运行 python app/memory.py 时，做个简单自测
-    mem = ChatMemory()
-    mem.add_user("我叫小明")
-    mem.add_assistant("你好小明！")
-    mem.add_user("我叫什么名字？")
-    print(summarize_messages(mem.get_messages()))
+    # 自测：带 chat_id 的持久化记忆
+    test_mem = ChatMemory(chat_id="__selftest__", max_len=10)
+    test_mem.clear()                    # 先清干净
+    test_mem.add_user("我叫小满")
+    test_mem.add_assistant("你好小满！")
 
-    demo = [
-        {"role": "user", "content": "什么是 Python？"},
-        {"role": "assistant", "content": "Python 是一种编程语言。"},
-        {"role": "user", "content": "什么是列表推导式？"},
-    ]
-    print(summarize_messages(demo))
+    # 模拟"重启"：重新创建一个实例，看能否从数据库加载回历史
+    mem_after_restart = ChatMemory(chat_id="__selftest__", max_len=10)
+    print("重启后加载到的历史:", summarize_messages(mem_after_restart.get_messages()))
+    test_mem.clear()

@@ -26,3 +26,7 @@ Thumbs.db
 run_feishu.out.log
 run_feishu.err.log
 
+
+# 数据库文件 (长期记忆)
+ai_tutor.db
+

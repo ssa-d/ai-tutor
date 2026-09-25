@@ -1,4 +1,4 @@
-﻿"""飞书机器人接入模块。
+"""飞书机器人接入模块。
 
 通过飞书官方 SDK（lark-oapi）的 WebSocket 长连接模式接收用户的私聊消息，
 用 ChatMemory 为每个用户会话记住历史，再调用 DeepSeek（llm.chat）生成回答，
@@ -30,7 +30,7 @@ def _get_session(chat_id: str) -> ChatMemory:
     """取出某个会话的记忆盒子；没有就新建一个。"""
     mem = _sessions.get(chat_id)
     if mem is None:
-        mem = ChatMemory()          # 新会话：从零开始记忆
+        mem = ChatMemory(chat_id=chat_id)   # 新会话：从数据库加载历史(长期记忆)
         _sessions[chat_id] = mem
     return mem
 
