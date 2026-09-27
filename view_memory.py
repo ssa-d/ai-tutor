@@ -13,7 +13,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 DB = Path(__file__).resolve().parent / "ai_tutor.db"
 
-# 默认查最近 20 条，也允许命令行传数字
 n = 20
 if len(sys.argv) > 1:
     try:
@@ -22,33 +21,41 @@ if len(sys.argv) > 1:
         pass
 
 
+def _columns(conn, table):
+    """返回某张表的所有列名。"""
+    return [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
+
+
 def main():
     if not DB.exists():
         print(f"数据库不存在：{DB}")
-        print("请先启动飞书机器人和 AI 聊几句，数据会存到这里。")
         return
 
     conn = sqlite3.connect(DB)
-    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'") if not r[0].startswith("sqlite_")]
     print(f"数据库：{DB}")
-    print(f"表：{tables}")
-    print(f"（显示最近 {n} 条）")
+    print(f"表：{tables}  （显示每张表最近 {n} 条）")
     print("=" * 70)
 
     for t in tables:
-        if t.startswith("sqlite_"):
-            continue
+        cols = _columns(conn, t)
         cnt = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        print(f"\n📄 表 [{t}]：共 {cnt} 条记录")
-        try:
-            rows = conn.execute(
-                f'SELECT id, chat_id, role, content, created_at FROM "{t}" ORDER BY id DESC LIMIT ?',
-                (n,),
-            ).fetchall()
+        print(f"\n📄 表 [{t}]：共 {cnt} 条记录  列={cols}")
+
+        # 根据表结构选择要显示的列
+        if "content" in cols:
+            rows = conn.execute(f'SELECT * FROM "{t}" ORDER BY rowid DESC LIMIT ?', (n,)).fetchall()
             for r in rows:
-                print(f"  #{r[0]} [{r[4]}] chat={r[1][:12]}... role={r[2]}: {str(r[3])[:60]}")
-        except Exception as e:
-            print(f"  读取失败: {e}")
+                # 把每一列凑成 "列名=值"，content 显示前 60 字
+                parts = []
+                for col, val in zip(cols, r):
+                    if col == "content":
+                        parts.append(f"content={str(val)[:60]}")
+                    else:
+                        parts.append(f"{col}={val}")
+                print("  " + "  ".join(parts))
+        else:
+            print("  （该表无 content 列，跳过）")
     conn.close()
 
 
