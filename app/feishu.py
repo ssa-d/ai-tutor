@@ -18,7 +18,7 @@ from lark_oapi import EventDispatcherHandler, LogLevel
 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 from lark_oapi.ws import Client as WsClient
 
-from . import config, llm
+from . import config, llm, storage
 from .memory import ChatMemory
 
 
@@ -34,6 +34,46 @@ def _get_session(chat_id: str) -> ChatMemory:
         _sessions[chat_id] = mem
     return mem
 
+
+
+def _handle_log_command(chat_id: str, text: str) -> str | None:
+    """识别并处理'记录日志'和'总结今天'指令。
+
+    返回:
+        若要转入日志流程，返回要发给用户的回复文本；
+        若这句话不是日志指令，返回 None（走普通对话）。
+    """
+    # --- 记录指令：'今天我干了...' 或 '记录：...' ---
+    if text.startswith("今天我干了") or text.startswith("记录"):
+        # 去掉指令前缀，只保留真正的内容
+        if text.startswith("今天我干了"):
+            log_content = text[len("今天我干了"):].strip(" ：：:") or text
+        else:
+            log_content = text[len("记录"):].strip(" ：:") or text
+
+        storage.save_log(chat_id, log_content)
+        return f"✅ 已记下：{log_content}"
+
+    # --- 总结指令：'总结今天' ---
+    if "总结" in text and "今天" in text:
+        logs = storage.load_today_logs(chat_id)
+        if not logs:
+            return "📭 今天还没有记录哦。可以告诉我「今天我干了XXX」来记录～"
+
+        # 把今天的所有日志按时间排好，交给 DeepSeek 生成日报
+        lines = "\n".join(f"- {log['created_at']} {log['content']}" for log in logs)
+        prompt = (
+            "下面是我今天的活动记录，请把它们整理成一段自然流畅的中文'今日总结'日报，"
+            "语气友好，可稍微归纳，不要编造没有的内容：\n\n" + lines
+        )
+        reply = llm.chat(
+            [{"role": "user", "content": prompt}],
+            system_prompt="你是一名贴心的个人助理，帮我整理每日总结。",
+        )
+        return "📋 今日总结：\n\n" + reply
+
+    # 不是日志指令，交给普通对话处理
+    return None
 
 def _build_event_handler():
     """构建 WebSocket 事件分发器，并注册"收到消息"事件。"""
@@ -69,6 +109,13 @@ def _on_message_received(data) -> None:
         # 1) 取出这个会话的记忆盒子
         chat_id = message.chat_id
         mem = _get_session(chat_id)
+
+        # ---- 日志功能：识别"记录"和"总结今天"指令 ----
+        log_reply = _handle_log_command(chat_id, text)
+        if log_reply is not None:
+            _reply_message(message.message_id, log_reply)
+            print("[DEBUG] 已按日志指令处理，不进入普通对话")
+            return
 
         # 2) 记住用户说的话
         mem.add_user(text)
