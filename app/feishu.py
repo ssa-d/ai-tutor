@@ -20,6 +20,7 @@ import traceback
 from lark_oapi import Client as LarkClient
 from lark_oapi import EventDispatcherHandler, LogLevel
 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 from lark_oapi.ws import Client as WsClient
 
 from . import config, llm, storage
@@ -228,6 +229,32 @@ ws_client = WsClient(
 )
 
 
+
+def send_active_message(chat_id: str, text: str) -> bool:
+    """主动给某个会话发一条文本消息（不依赖用户先发消息）。
+
+    用于定时推送/主动提醒。返回是否发送成功。
+    """
+    try:
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("text")
+                .content(json.dumps({"text": text}))
+                .build()
+            )
+            .build()
+        )
+        resp = im_client.im.v1.message.create(request)
+        ok = resp.code == 0
+        print(f"[PUSH] 主动发消息{'成功' if ok else '失败'} code={resp.code} msg={resp.msg}")
+        return ok
+    except Exception as exc:
+        print(f"[PUSH] 主动发消息异常: {exc}")
+        return False
 def run() -> None:
     """启动飞书机器人（阻塞式长连接，一直运行）。"""
     print("飞书机器人已启动，等待消息……")

@@ -36,3 +36,17 @@ FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
 def has_feishu_config() -> bool:
     """是否已配置飞书应用凭证。"""
     return bool(FEISHU_APP_ID.strip() and FEISHU_APP_SECRET.strip())
+
+
+# ---------------------------------------------------------------------------
+# 主动推送 / 定时提醒配置
+# ---------------------------------------------------------------------------
+
+# 主动发消息的目标会话 ID（你自己的飞书私聊 chat_id）
+FEISHU_TARGET_CHAT_ID: str = os.getenv("FEISHU_TARGET_CHAT_ID", "oc_df8824d48220fb34efa7bc8acd5dd1df")
+
+# 每天提醒"记录今天"的时间（24小时制 HH:MM）
+REMINDER_TIME: str = os.getenv("REMINDER_TIME", "21:00")
+
+# 每天自动发"今日总结"日报的时间（24小时制，空串=不自动发日报）
+SUMMARY_TIME: str = os.getenv("SUMMARY_TIME", "22:00")

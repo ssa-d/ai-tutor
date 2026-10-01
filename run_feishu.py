@@ -1,4 +1,4 @@
-﻿"""启动飞书机器人（独立于 FastAPI 服务）。
+"""启动飞书机器人（独立于 FastAPI 服务）。
 
 用法:  python run_feishu.py
 """
@@ -39,13 +39,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app import config, feishu
+from app import config, feishu, scheduler
 
 
 def main() -> None:
     if not config.has_feishu_config():
         print("错误：尚未在 .env 配置 FEISHU_APP_ID / FEISHU_APP_SECRET")
         return
+    # 先启动定时任务线程（主动推送），再阻塞式运行机器人
+    scheduler.start()   # 非阻塞，内部开一个 daemon 线程
     feishu.run()
 
 

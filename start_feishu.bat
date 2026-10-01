@@ -15,5 +15,5 @@ if not exist .venv\Scripts\python.exe (
 
 set PYTHONIOENCODING=utf-8
 echo Starting bot, please wait...
-.venv\Scripts\python.exe run_feishu.py
+.venv\Scripts\python.exe -u run_feishu.py
 pause
